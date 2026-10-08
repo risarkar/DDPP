@@ -3,7 +3,7 @@ One time read Password sharing over TCP
 
 Python 3.10+ standard-library implementation of the Dead Drop Password protocol. No installation dependencies are needed.
 
-From this folder, start the server:
+From this repo, start the server:
 
 ```powershell
 python -m ddpp.server
