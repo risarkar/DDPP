@@ -202,7 +202,8 @@ class DDPPServer:
                         continue
                     if not data:
                         break
-                    for item in framer.feed(data):
+                    items = framer.feed(data)
+                    for index, item in enumerate(items):
                         if item == FORMAT_ERROR:
                             self._send(connection, FORMAT_ERROR)
                             self._log_command(connection_id, peer, "MALFORMED", 300)
@@ -256,14 +257,10 @@ class DDPPServer:
                                 token_tag=token_tag(command.args[0]),
                             )
                         elif name == "WATCH":
-                            self._log_command(
-                                connection_id,
-                                peer,
-                                name,
-                                200,
-                                token_tag=token_tag(command.args[0]),
+                            reason = self._watch(
+                                connection, command.args[0], connection_id, peer,
+                                framer, items[index + 1:],
                             )
-                            reason = self._watch(connection, command.args[0], connection_id, peer)
                             return
         except OSError as exc:
             reason = f"socket_error:{type(exc).__name__}"
@@ -278,14 +275,30 @@ class DDPPServer:
             with self._thread_lock:
                 self._threads.discard(threading.current_thread())
 
-    def _watch(self, connection, token, connection_id, peer):
+    def _watch(self, connection, token, connection_id, peer, framer, pending):
         watcher = Watcher()
         self.store.watch(token, watcher)
         try:
             self._send(connection, "200 OK watching")
+            self._log_command(connection_id, peer, "WATCH", 200, token_tag=token_tag(token))
             deadline = time.monotonic() + 604800
             connection.settimeout(0.2)
             while not self._stop.is_set() and time.monotonic() < deadline:
+                # Retain complete and partial frames already received with WATCH.
+                # QUIT remains available; other input gets an error without losing
+                # the subscription or terminating the connection.
+                for item in pending:
+                    try:
+                        command = parse(item) if isinstance(item, bytes) else None
+                    except ProtocolError:
+                        command = None
+                    if command is not None and command.name == "QUIT":
+                        self._send(connection, "200 OK bye")
+                        self._log_command(connection_id, peer, "QUIT", 200)
+                        return "quit"
+                    self._send(connection, FORMAT_ERROR)
+                    self._log_command(connection_id, peer, "MALFORMED", 300)
+                pending = []
                 if watcher.event.is_set():
                     self._send(connection, watcher.notice)
                     notice = watcher.notice.split()[1]
@@ -301,9 +314,7 @@ class DDPPServer:
                     data = connection.recv(4096)
                     if not data:
                         return "watch_eof"
-                    # WATCH owns this connection. Any later input is a protocol error.
-                    self._send(connection, FORMAT_ERROR)
-                    return "watch_protocol_error"
+                    pending = framer.feed(data)
                 except socket.timeout:
                     continue
             return "watch_timeout" if not self._stop.is_set() else "server_stop"

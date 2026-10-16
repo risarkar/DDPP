@@ -3,7 +3,7 @@ One-Time-Read Password Sharing over TCP
 
 DDPP is a lightweight client-server application for sharing short-lived credentials without leaving them permanently in chat or email history. A sender stores a password temporarily and receives a random token. The password can be retrieved only for its configured number of reads and is removed automatically when consumed or expired.
 
-Python 3.10+ standard-library implementation of the Dead Drop Password Protocol. No installation dependencies are needed.
+Python 3.10+ standard-library implementation of the Dead Drop Password Protocol. No installation dependencies are needed. On macOS, use `python3` if `python` is unavailable.
 
 ## How DDPP works
 
@@ -72,15 +72,19 @@ Stop the server cleanly with `Ctrl+C` before collecting the log for a demonstrat
 
 ## Tests
 
-Run tests from this repo:
+Run the 19 automated scenarios from the repository root:
 
 ```powershell
-python -m unittest discover -s tests -v
+python -B -m unittest discover -s tests -v
 ```
+
+The suite uses Python's standard-library unittest module and takes about 65 seconds because one scenario waits for a real 60-second expiry. It covers all five commands, exact replies, framing, invalid input, WATCH recovery, read limits, multiple clients, shutdown, log privacy, and response timing.
+
+Tests print requests and responses using dummy passwords and save server logs to a new timestamped folder under `evidence/` on each run. The recorded coursework report, LAN screenshots, and collected submission evidence are supplied separately.
 
 ## Protocol summary
 
-Each message is one UTF-8 line ending in `\n`. The line body may be at most 256 bytes. Commands and response fields use ASCII. Clients may send multiple commands on one connection, except `WATCH`, which takes over that connection until a notice or disconnect.
+Each message is one UTF-8 line ending in `\n`. The line body may be at most 256 bytes, excluding LF. Commands and response fields use ASCII. Ordinary connections accept multiple commands. After `WATCH`, QUIT closes the session gracefully, while other input receives `300 message format error` and the subscription remains open.
 
 | Command | Success | Errors |
 | --- | --- | --- |
@@ -102,7 +106,7 @@ Present but invalid TTL, read count, or password receives `301 invalid TTL`, `30
 On the final allowed read, the entry is removed and watchers get `210 BURNED <token> <UTC timestamp>`.
 On expiry with reads remaining, watchers get `220 EXPIRED <token> <UTC timestamp>`. Timestamp format is `YYYY-MM-DDTHH:MM:SSZ`.
 
-Every syntactically valid WATCH gets the identical immediate `200 OK watching`, even if the token is absent. A WATCH connection accepts no further commands and can remain open for up to 604800 seconds. The implementation also sets a connection limit. A watcher can observe consumption; it cannot establish the recipient's identity or prove the password was displayed. If a client disconnects after retrieval, it does not reverse consumption.
+Every syntactically valid WATCH gets the identical immediate `200 OK watching`, even if the token is absent. A WATCH connection accepts QUIT for graceful disconnection; other input receives `300 message format error` while the subscription stays open. It can remain open for up to 604800 seconds. The implementation also sets a connection limit. A watcher can observe consumption; it cannot establish the recipient's identity or prove the password was displayed. If a client disconnects after retrieval, it does not reverse consumption.
 
 ## Security and limitations
 
