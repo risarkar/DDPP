@@ -1,7 +1,9 @@
 # DDPP - Dead Drop Password Protocol
-One-Time-Read Password Sharing over TCP
+Short-Lived Password Sharing over TCP
 
 DDPP is a lightweight client-server application for sharing short-lived credentials without leaving them permanently in chat or email history. A sender stores a password temporarily and receives a random token. The password can be retrieved only for its configured number of reads and is removed automatically when consumed or expired.
+
+Team Group 3: Rishiraj Sarkar, Aakash Sivashanmugam, and Vishal Kumar.
 
 Python 3.10+ standard-library implementation of the Dead Drop Password Protocol. No installation dependencies are needed. On macOS, use `python3` if `python` is unavailable.
 
@@ -17,7 +19,9 @@ The server keeps the shared in-memory password store, so the sender and recipien
 
 ## Local use
 
-From the repository root, start the server:
+Download or clone this repository and open a terminal in its root folder, which contains `ddpp` and `tests`. No compilation or package installation is required.
+
+Start the server:
 
 ```powershell
 python -m ddpp.server
@@ -36,6 +40,34 @@ python -m ddpp.client quit
 `store` prompts for the password without echoing it. Copy the returned token into the other commands. Keep `watch` running in one terminal and run `retrieve` in another. Host and port may be set with `--host` and `--port` before the subcommand. The default is `127.0.0.1:5270`.
 
 To test concurrency, start two `retrieve` commands for a one-read token at the same time. Exactly one should print the password and the other should print `404 not found`.
+
+## Persistent sessions and WATCH
+
+For several ordinary commands on one connection, run:
+
+```text
+python -m ddpp.client session
+```
+
+At the `DDPP>` prompt, enter `store 600 1` and supply the password at the hidden prompt. Copy the returned token and use `info TOKEN` or `retrieve TOKEN`. INFO does not consume a read. Enter `quit` to receive `200 OK bye` and close the session. `help` lists guidance. End-of-input or Ctrl+C at the command prompt also requests QUIT. The original one-command client remains available.
+
+WATCH runs in a separate terminal. Entering `watch` inside a session displays guidance instead of starting a subscription. We keep watching separate because it waits for an asynchronous notice, while the ordinary session remains available for other commands. A protocol connection that enters WATCH accepts only QUIT until its notice or closure. Other input receives 300 and leaves the subscription active.
+
+Start the watch while the token is active, and wait for its acknowledgement before the final retrieval:
+
+```text
+python -m ddpp.client watch TOKEN --timeout 90
+```
+
+The optional positive waiting limit starts after `200 OK watching`. Press Ctrl+C to cancel. A timeout closes this watch without changing the password or proving whether the token exists. Without `--timeout`, waiting continues until a notice, cancellation, server closure, or the server's maximum watch lifetime. Notices are not replayed for events that occurred before subscription. A well-formed unknown token receives the same initial acknowledgement as a live token.
+
+For remote use, include the same `--host SERVER_IP --port 5270` before `session` or `watch` in each terminal.
+
+## Command-line options
+
+Server options are `--host ADDRESS` (default `127.0.0.1`) or `--lan` (bind `0.0.0.0`), `--port PORT` (5270), `--max-clients COUNT` (64), `--log-file PATH` (`ddpp-server.log`), `--log-max-bytes COUNT` (1000000), and `--log-backups COUNT` (3). `--host` and `--lan` are mutually exclusive. Use positive operational values for capacity and logging settings.
+
+Client `--host ADDRESS` and `--port PORT` options precede the subcommand. Subcommands are `store TTL MAX_READS`, `retrieve TOKEN`, `info TOKEN`, `watch TOKEN [--timeout SECONDS]`, `quit`, and `session`. The WATCH limit must be positive and finite. Both applications support `--help`.
 
 ## Sharing on a private local network
 
@@ -72,13 +104,15 @@ Stop the server cleanly with `Ctrl+C` before collecting the log for a demonstrat
 
 ## Tests
 
-Run the 19 automated scenarios from the repository root:
+Run all 25 automated scenarios from the repository root:
 
 ```powershell
 python -B -m unittest discover -s tests -v
 ```
 
-The suite uses Python's standard-library unittest module and takes about 65 seconds because one scenario waits for a real 60-second expiry. It covers all five commands, exact replies, framing, invalid input, WATCH recovery, read limits, multiple clients, shutdown, log privacy, and response timing.
+The suite uses Python's standard-library unittest module. It retains the 19 scenarios in `tests/test_ddpp.py` and adds six in `tests/test_phase3.py`. The full run takes a little over a minute because one scenario waits for a real 60-second expiry. It covers all five commands, exact replies, framing, invalid input, WATCH recovery, read limits, shutdown, log privacy, persistent sessions, waiting limits, mixed concurrent operations, failure isolation, and ten clients completing 200 requests.
+
+For only the six added scenarios, run `python -B -m unittest discover -s tests -p test_phase3.py -v`.
 
 Tests print requests and responses using dummy passwords and save server logs to a new timestamped folder under `evidence/` on each run. The recorded coursework report, LAN screenshots, and collected submission evidence are supplied separately.
 
@@ -111,3 +145,7 @@ Every syntactically valid WATCH gets the identical immediate `200 OK watching`, 
 ## Security and limitations
 
 This implementation uses raw TCP and an in-memory store. Use dummy passwords on localhost or a trusted lab network. Real network deployment requires authenticated transport encryption and additional abuse controls. A server restart loses all entries. Deletion means removal from the active server store, not erasure of copies held by clients or the operating system.
+
+## External resources
+
+The application and tests use only [Python's standard library](https://docs.python.org/3/library/). No external networking framework is required. The [course project instructions](https://github.com/guojinhua-umd/socketProgramming) define the coursework requirements. Phase 1 discussed Privnote and One-Time Secret as examples of short-lived sharing services. DDPP implements its own text protocol.
